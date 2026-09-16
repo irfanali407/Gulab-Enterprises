@@ -12,6 +12,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 if (!process.env.CLIENT_URL) {
   throw new Error('CLIENT_URL must be configured');
 }
+const clientOrigins = process.env.CLIENT_URL.split(',').map((value) => value.trim()).filter(Boolean);
 const isLocalhostClientUrl = (url) => {
   try {
     const parsed = new URL(url);
@@ -20,8 +21,10 @@ const isLocalhostClientUrl = (url) => {
     return false;
   }
 };
-if (process.env.NODE_ENV === 'production' && !process.env.CLIENT_URL?.startsWith('https://') && !isLocalhostClientUrl(process.env.CLIENT_URL)) {
-  throw new Error('CLIENT_URL must use HTTPS in production');
+for (const candidate of clientOrigins) {
+  if (process.env.NODE_ENV === 'production' && !candidate.startsWith('https://') && !isLocalhostClientUrl(candidate)) {
+    throw new Error('CLIENT_URL must use HTTPS in production');
+  }
 }
 
 const ensureDefaultAdmin = async () => {
@@ -78,9 +81,21 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 app.use(helmet());
+const allowedOrigins = new Set([
+  ...clientOrigins,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+]);
 app.use(cors({
-  origin: process.env.CLIENT_URL,
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
 }));
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
