@@ -105,7 +105,7 @@ router.post('/', async (req, res) => {
     return res.status(201).json({ tracked: true });
   } catch (error) {
     if (isDuplicateKeyError(error)) return res.status(200).json({ tracked: false });
-    return res.status(500).json({ message: error.message });
+    return res.status(500).json({ message: 'Unable to record analytics' });
   }
 });
 
@@ -136,7 +136,7 @@ router.get('/stats', protect, admin, async (req, res) => {
 
     res.json({ totalVisitors, totalBookings, todayVisitors, todayBookings });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to load analytics' });
   }
 });
 

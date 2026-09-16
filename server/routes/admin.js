@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/auth');
 const User = require('../models/User');
+const { validatePassword } = require('../middleware/validation');
 
 // @desc    Change the authenticated admin password
 // @route   PUT /api/admin/change-password
@@ -13,8 +14,8 @@ router.put('/change-password', protect, admin, async (req, res) => {
     if (!oldPassword || !newPassword) {
       return res.status(400).json({ message: 'Old password and new password are required' });
     }
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    if (!validatePassword(newPassword)) {
+      return res.status(400).json({ message: 'New password must be between 8 and 128 characters' });
     }
 
     const user = await User.findById(req.user._id);

@@ -6,6 +6,27 @@ const Service = require('./models/Service');
 const defaultServices = require('./config/defaultServices');
 const connectDB = require('./config/db');
 
+const createOrUpdateAdmin = async (adminEmail, adminPassword) => {
+  const existingAdmin = await User.findOne({ email: adminEmail });
+
+  if (existingAdmin) {
+    existingAdmin.name = existingAdmin.name || 'System Admin';
+    existingAdmin.isAdmin = true;
+    existingAdmin.isVerified = true;
+    existingAdmin.password = adminPassword;
+    await existingAdmin.save();
+    return existingAdmin;
+  }
+
+  return User.create({
+    name: 'System Admin',
+    email: adminEmail,
+    password: adminPassword,
+    isAdmin: true,
+    isVerified: true,
+  });
+};
+
 const seedData = async () => {
   try {
     const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
@@ -16,23 +37,16 @@ const seedData = async () => {
 
     await connectDB();
 
-    // Clear existing data (optional, but good for demo reload)
+    // Use only for local/demo seeding. This intentionally clears the database so the admin can be reset.
     await User.deleteMany();
     await Booking.deleteMany();
     await Service.deleteMany();
 
     console.log('Database cleared.');
 
-    // Seed Admin User
-    const adminUser = await User.create({
-      name: 'Gulab Admin',
-      email: adminEmail,
-      password: adminPassword,
-      isAdmin: true,
-      isVerified: true,
-    });
+    const adminUser = await createOrUpdateAdmin(adminEmail, adminPassword);
+    console.log(`Admin ready: ${adminUser.email}`);
 
-    // Seed Normal Customer User
     const customerUser = await User.create({
       name: 'Rohan Sharma',
       email: 'rohan@gmail.com',
@@ -43,7 +57,6 @@ const seedData = async () => {
 
     console.log('Users seeded.');
 
-    // Seed Sample Booking
     await Booking.create({
       userId: customerUser._id,
       name: 'Rohan Sharma',
@@ -51,7 +64,7 @@ const seedData = async () => {
       email: customerUser.email,
       address: 'Main Road, Mirgunj, Near HiraLal Cycle',
       serviceType: 'RO Service',
-      date: new Date(Date.now() + 24 * 60 * 60 * 1000), // Tomorrow
+      date: new Date(Date.now() + 24 * 60 * 60 * 1000),
       status: 'Pending',
       language: 'en',
     });

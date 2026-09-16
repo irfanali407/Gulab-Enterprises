@@ -5,35 +5,59 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const { sendPasswordResetEmail, sendVerificationOtpEmail } = require('../services/emailService');
+const rateLimit = require('express-rate-limit');
+const { isValidEmail, validatePassword } = require('../middleware/validation');
 
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
-const VERIFICATION_OTP_TTL_MS = 10 * 60 * 1000;
+const VERIFICATION_OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_VERIFICATION_OTP_ATTEMPTS = 5;
 const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const hashVerificationOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
 
+const loginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { message: 'Too many authentication attempts. Please try again later.' },
+});
+
+const otpRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { message: 'Too many verification attempts. Please try again later.' },
+});
+
+const registrationRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { message: 'Too many registration attempts. Please try again later.' },
+});
+
 // Generate JWT Helper
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
+    expiresIn: '1h',
   });
 };
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
 // @access  Public
-router.post('/register', async (req, res) => {
+router.post('/register', registrationRateLimit, async (req, res) => {
   try {
     const name = req.body.name || req.body.username;
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-    if (!name || !email || !password || !emailPattern.test(email)) {
+    if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 100 || !isValidEmail(email)) {
       return res.status(400).json({ message: 'Please provide a valid name, email, and password' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    if (!validatePassword(password)) {
+      return res.status(400).json({ message: 'Password must be between 8 and 128 characters' });
     }
 
     // Check if user exists
@@ -49,7 +73,7 @@ router.post('/register', async (req, res) => {
 
     // Create user
     const user = await User.create({
-      name,
+      name: name.trim(),
       email,
       password,
       isAdmin,
@@ -71,17 +95,21 @@ router.post('/register', async (req, res) => {
       res.status(400).json({ message: 'Invalid user data' });
     }
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to register account' });
   }
 });
 
 // @desc    Authenticate user & get token
 // @route   POST /api/auth/login
 // @access  Public
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
+
+    if (!isValidEmail(email) || typeof password !== 'string' || password.length > 128) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
 
     // Check for user email
     const user = await User.findOne({ email });
@@ -102,13 +130,13 @@ router.post('/login', async (req, res) => {
       res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to sign in' });
   }
 });
 
 // @desc    Verify a new account using its emailed OTP
 // @route   POST /api/auth/verify-otp
-router.post('/verify-otp', async (req, res) => {
+router.post('/verify-otp', otpRateLimit, async (req, res) => {
     try {
       const email = req.body.email?.trim().toLowerCase();
       const otp = String(req.body.otp || '').trim();
@@ -139,7 +167,7 @@ router.post('/verify-otp', async (req, res) => {
       await user.save();
       res.json({ message: 'Email verified successfully. You can now sign in.' });
     } catch (error) {
-      res.status(500).json({ message: error.message });
+      res.status(500).json({ message: 'Unable to verify code' });
     }
 });
 
@@ -149,9 +177,7 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/forgot-password', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
-    const emailPattern = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
-
-    if (!email || !emailPattern.test(email)) {
+    if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
 
@@ -178,8 +204,8 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/reset-password/:token', async (req, res) => {
   try {
     const { password, confirmPassword } = req.body;
-    if (!password || password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    if (!validatePassword(password)) {
+      return res.status(400).json({ message: 'Password must be between 8 and 128 characters' });
     }
     if (password !== confirmPassword) {
       return res.status(400).json({ message: 'Passwords do not match' });
@@ -201,7 +227,7 @@ router.post('/reset-password/:token', async (req, res) => {
 
     res.json({ message: 'Password reset successfully. You can now sign in.' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to reset password' });
   }
 });
 
@@ -223,7 +249,7 @@ router.get('/profile', protect, async (req, res) => {
       res.status(404).json({ message: 'User not found' });
     }
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to load profile' });
   }
 });
 

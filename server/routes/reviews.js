@@ -44,7 +44,7 @@ router.get('/', async (req, res) => {
 
     sendSuccess(res, reviews, 200, { page, limit, total, pages: Math.ceil(total / limit) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to load reviews' });
   }
 });
 
@@ -87,7 +87,7 @@ router.post('/', protect, async (req, res) => {
     sendSuccess(res, await review.populate('userId', 'name email'), 201);
   } catch (error) {
     if (error.code === 11000) return res.status(409).json({ message: 'You have already reviewed this booking' });
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to create review' });
   }
 });
 
@@ -109,7 +109,7 @@ router.put('/:id', protect, loadReview, reviewOwner, async (req, res) => {
     await review.save();
     sendSuccess(res, await review.populate('userId', 'name email'));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to update review' });
   }
 });
 
@@ -121,7 +121,7 @@ router.delete('/:id', protect, loadReview, reviewOwnerOrAdmin, async (req, res) 
     await review.deleteOne();
     sendSuccess(res, { message: 'Review deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to delete review' });
   }
 });
 

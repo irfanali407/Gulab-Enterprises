@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 
 const siteUrl = 'https://gulabenterprises.com';
 const defaultDescription = 'Gulab Enterprises provides trusted RO repair, AC service, washing machine, refrigerator, and geyser repair in Mirgunj, Gopalganj, Bihar.';
-const keywords = 'RO repair Mirgunj, RO service, AC service Mirgunj, appliance repair Gopalganj, washing machine repair, refrigerator repair, geyser repair, Gulab Enterprises';
+const keywords = 'RO repair Mirgunj, RO service, AC service Mirgunj, appliance repair Gopalganj, washing machine repair, refrigerator repair, geyser repair, Gulab Enterprises,Siwan';
 
 const localBusinessSchema = {
   '@context': 'https://schema.org',
@@ -22,7 +22,7 @@ const localBusinessSchema = {
     postalCode: '841438',
     addressCountry: 'IN',
   },
-  areaServed: ['Mirgunj', 'Gopalganj', 'Bihar'],
+  areaServed: ['Mirgunj', 'Gopalganj','Siwan', 'Bihar'],
   serviceType: ['RO repair', 'AC service', 'Washing machine repair', 'Refrigerator repair', 'Geyser repair'],
 };
 

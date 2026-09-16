@@ -328,7 +328,8 @@ const AdminDashboard = () => {
                 <input
                   type="password"
                   required
-                  minLength={6}
+                  minLength={8}
+                  maxLength={128}
                   placeholder="Current password"
                   value={passwordForm.oldPassword}
                   onChange={(event) => setPasswordForm({ ...passwordForm, oldPassword: event.target.value })}
@@ -337,7 +338,8 @@ const AdminDashboard = () => {
                 <input
                   type="password"
                   required
-                  minLength={6}
+                  minLength={8}
+                  maxLength={128}
                   placeholder="New password"
                   value={passwordForm.newPassword}
                   onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })}

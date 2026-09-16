@@ -1,9 +1,14 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Service = require('../models/Service');
 const { protect, admin } = require('../middleware/auth');
 const defaultServices = require('../config/defaultServices');
 
 const router = express.Router();
+const allowedServiceFields = ['slug', 'name', 'description', 'price', 'icon'];
+const pickServiceFields = (body) => Object.fromEntries(
+  allowedServiceFields.filter((field) => Object.prototype.hasOwnProperty.call(body, field)).map((field) => [field, body[field]])
+);
 
 const ensureDefaultServices = async () => {
   await Promise.all(
@@ -42,11 +47,11 @@ router.get('/admin', protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.post('/', protect, admin, async (req, res) => {
   try {
-    const service = await Service.create(req.body);
+    const service = await Service.create(pickServiceFields(req.body));
     res.status(201).json(service);
   } catch (error) {
     const statusCode = error.code === 11000 || error.name === 'ValidationError' ? 400 : 500;
-    res.status(statusCode).json({ message: error.code === 11000 ? 'A service with this slug already exists' : error.message });
+    res.status(statusCode).json({ message: error.code === 11000 ? 'A service with this slug already exists' : 'Invalid service data' });
   }
 });
 
@@ -55,7 +60,8 @@ router.post('/', protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.put('/:id', protect, admin, async (req, res) => {
   try {
-    const service = await Service.findByIdAndUpdate(req.params.id, req.body, {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid service id' });
+    const service = await Service.findByIdAndUpdate(req.params.id, pickServiceFields(req.body), {
       new: true,
       runValidators: true,
     });
@@ -65,7 +71,7 @@ router.put('/:id', protect, admin, async (req, res) => {
     res.json(service);
   } catch (error) {
     const statusCode = error.name === 'ValidationError' || error.code === 11000 ? 400 : 500;
-    res.status(statusCode).json({ message: error.code === 11000 ? 'A service with this slug already exists' : error.message });
+    res.status(statusCode).json({ message: error.code === 11000 ? 'A service with this slug already exists' : 'Invalid service data' });
   }
 });
 
@@ -74,6 +80,7 @@ router.put('/:id', protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.delete('/:id', protect, admin, async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid service id' });
     const service = await Service.findByIdAndDelete(req.params.id);
     if (!service) {
       return res.status(404).json({ message: 'Service not found' });

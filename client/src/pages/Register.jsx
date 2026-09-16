@@ -39,8 +39,8 @@ const Register = () => {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long');
       return;
     }
 
@@ -140,7 +140,9 @@ const Register = () => {
                 type="password"
                 id="password"
                 required
-                placeholder="Min 6 characters"
+                minLength={8}
+                maxLength={128}
+                placeholder="Min 8 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 focus:bg-white pl-11 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 transition"
@@ -161,6 +163,8 @@ const Register = () => {
                 type="password"
                 id="confirmPassword"
                 required
+                minLength={8}
+                maxLength={128}
                 placeholder="Re-enter password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

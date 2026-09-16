@@ -74,7 +74,8 @@ const ResetPassword = () => {
                 type="password"
                 id="password"
                 required
-                minLength="6"
+                minLength="8"
+                maxLength="128"
                 autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -90,7 +91,8 @@ const ResetPassword = () => {
                 type="password"
                 id="confirmPassword"
                 required
-                minLength="6"
+                minLength="8"
+                maxLength="128"
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}

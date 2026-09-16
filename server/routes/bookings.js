@@ -7,6 +7,8 @@ const {
   sendBookingCompletedNotifications,
 } = require('../services/emailService');
 const { recordBookingEvent } = require('./analytics');
+const mongoose = require('mongoose');
+const { validateBooking } = require('../middleware/validation');
 
 // @desc    Create a new booking
 // @route   POST /api/bookings
@@ -15,16 +17,16 @@ router.post('/', protect, async (req, res) => {
   try {
     const { name, phone, address, serviceType, date, language } = req.body;
 
-    if (!name || !phone || !address || !serviceType || !date) {
-      return res.status(400).json({ message: 'Please add all required fields' });
+    if (!validateBooking({ name, phone, address, serviceType, date, language })) {
+      return res.status(400).json({ message: 'Please provide valid booking details' });
     }
 
     const booking = new Booking({
       userId: req.user._id,
-      name,
-      phone,
+      name: name.trim(),
+      phone: phone.trim(),
       email: req.user.email,
-      address,
+      address: address.trim(),
       serviceType,
       date,
       language: language === 'hi' ? 'hi' : 'en',
@@ -38,7 +40,7 @@ router.post('/', protect, async (req, res) => {
     });
     res.status(201).json(createdBooking);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to create booking' });
   }
 });
 
@@ -50,7 +52,7 @@ router.get('/my', protect, async (req, res) => {
     const bookings = await Booking.find({ userId: req.user._id }).sort({ createdAt: -1 });
     res.json(bookings);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to load bookings' });
   }
 });
 
@@ -64,7 +66,7 @@ router.get('/', protect, admin, async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(bookings);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to load all bookings' });
   }
 });
 
@@ -73,6 +75,7 @@ router.get('/', protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.put('/:id/status', protect, admin, async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid booking id' });
     const { status } = req.body;
     const allowedStatuses = ['Pending', 'Approved', 'In Progress', 'Completed', 'Cancelled'];
 
@@ -96,7 +99,7 @@ router.put('/:id/status', protect, admin, async (req, res) => {
       res.status(404).json({ message: 'Booking not found' });
     }
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to update booking' });
   }
 });
 
@@ -105,6 +108,7 @@ router.put('/:id/status', protect, admin, async (req, res) => {
 // @access  Private
 router.delete('/:id', protect, async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid booking id' });
     const booking = await Booking.findById(req.params.id);
 
     if (!booking) {
@@ -119,7 +123,7 @@ router.delete('/:id', protect, async (req, res) => {
     await Booking.findByIdAndDelete(req.params.id);
     res.json({ message: 'Booking cancelled/deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to delete booking' });
   }
 });
 
