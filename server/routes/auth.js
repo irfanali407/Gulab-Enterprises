@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 const { sendPasswordResetEmail, sendVerificationOtpEmail } = require('../services/emailService');
@@ -11,71 +12,70 @@ const { isValidEmail, validatePassword } = require('../middleware/validation');
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
 const VERIFICATION_OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_VERIFICATION_OTP_ATTEMPTS = 5;
-const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
-const hashVerificationOtp = (otp) => crypto.createHash('sha256').update(otp).digest('hex');
 
-const loginRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { message: 'Too many authentication attempts. Please try again later.' },
-});
+const hashResetToken = (token) =>
+  crypto.createHash('sha256').update(token).digest('hex');
 
-const otpRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { message: 'Too many verification attempts. Please try again later.' },
-});
+const hashVerificationOtp = (otp) =>
+  crypto.createHash('sha256').update(otp).digest('hex');
 
+// 🔐 Rate Limits
 const registrationRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { message: 'Too many registration attempts. Please try again later.' },
 });
 
-// Generate JWT Helper
+// 🔐 JWT
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: '1h',
   });
 };
 
-// @desc    Register a new user
-// @route   POST /api/auth/register
-// @access  Public
+// ================= REGISTER =================
 router.post('/register', registrationRateLimit, async (req, res) => {
   try {
+    console.log("📦 BODY:", req.body);
+
     const name = req.body.name || req.body.username;
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
-    if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 100 || !isValidEmail(email)) {
-      return res.status(400).json({ message: 'Please provide a valid name, email, and password' });
-    }
-    if (!validatePassword(password)) {
-      return res.status(400).json({ message: 'Password must be between 8 and 128 characters' });
+
+    // ✅ Validation
+    if (
+      typeof name !== 'string' ||
+      name.trim().length < 2 ||
+      !isValidEmail(email)
+    ) {
+      return res.status(400).json({ message: 'Invalid name or email' });
     }
 
-    // Check if user exists
+    if (!validatePassword(password)) {
+      return res.status(400).json({ message: 'Password must be 8+ chars' });
+    }
+
+    // ✅ Check existing user
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Check if it's the first user ever, make them admin for ease of setup/demo
+    // 👑 First user = admin
     const userCount = await User.countDocuments({});
     const isAdmin = userCount === 0;
+
+    // 🔐 Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // 🔢 OTP
     const verificationOtp = crypto.randomInt(100000, 1000000).toString();
 
-    // Create user
+    // 👤 Create user
     const user = await User.create({
       name: name.trim(),
       email,
-      password,
+      password: hashedPassword,
       isAdmin,
       isVerified: false,
       verificationOtp: hashVerificationOtp(verificationOtp),
@@ -83,174 +83,68 @@ router.post('/register', registrationRateLimit, async (req, res) => {
       verificationOtpAttempts: 0,
     });
 
-    if (user) {
-      try {
-        await sendVerificationOtpEmail(user.email, verificationOtp);
-      } catch (emailError) {
-        await User.deleteOne({ _id: user._id });
-        throw emailError;
-      }
-      res.status(201).json({ message: 'Verification code sent. Enter the code emailed to you before signing in.' });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
+    // 📧 Send email (SAFE)
+    try {
+      await sendVerificationOtpEmail(user.email, verificationOtp);
+      console.log("✅ OTP sent");
+    } catch (emailError) {
+      console.error("❌ Email failed:", emailError.message);
+      // ❗ user delete नहीं करेंगे
     }
+
+    res.status(201).json({
+      message: "User registered. Check email for OTP.",
+    });
+
   } catch (error) {
-    res.status(500).json({ message: 'Unable to register account' });
+    console.error("🔥 REGISTER ERROR:", error);
+    res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Authenticate user & get token
-// @route   POST /api/auth/login
-// @access  Public
-router.post('/login', loginRateLimit, async (req, res) => {
+// ================= LOGIN =================
+router.post('/login', async (req, res) => {
   try {
     const email = req.body.email?.trim().toLowerCase();
     const { password } = req.body;
 
-    if (!isValidEmail(email) || typeof password !== 'string' || password.length > 128) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+    if (!isValidEmail(email) || !password) {
+      return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // Check for user email
     const user = await User.findOne({ email });
 
-    if (user && !user.isVerified) {
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    if (!user.isVerified) {
       return res.status(403).json({ message: 'Please verify your email' });
     }
 
-    if (user && (await user.matchPassword(password))) {
-      res.json({
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-        token: generateToken(user._id),
-      });
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Unable to sign in' });
-  }
-});
+    const isMatch = await bcrypt.compare(password, user.password);
 
-// @desc    Verify a new account using its emailed OTP
-// @route   POST /api/auth/verify-otp
-router.post('/verify-otp', otpRateLimit, async (req, res) => {
-    try {
-      const email = req.body.email?.trim().toLowerCase();
-      const otp = String(req.body.otp || '').trim();
-      if (!email || !/^\d{6}$/.test(otp)) {
-        return res.status(400).json({ message: 'Please provide your email and 6-digit verification code' });
-      }
-
-      const user = await User.findOne({ email });
-      if (!user || user.isVerified) {
-        return res.status(400).json({ message: 'Invalid verification code' });
-      }
-      if (!user.verificationOtpExpiry || user.verificationOtpExpiry <= new Date()) {
-        return res.status(400).json({ message: 'Verification code has expired' });
-      }
-      if (user.verificationOtpAttempts >= MAX_VERIFICATION_OTP_ATTEMPTS) {
-        return res.status(429).json({ message: 'Too many incorrect attempts. Please request a new code.' });
-      }
-      if (hashVerificationOtp(otp) !== user.verificationOtp) {
-        user.verificationOtpAttempts += 1;
-        await user.save();
-        return res.status(400).json({ message: 'Invalid verification code' });
-      }
-
-      user.isVerified = true;
-      user.verificationOtp = null;
-      user.verificationOtpExpiry = null;
-      user.verificationOtpAttempts = 0;
-      await user.save();
-      res.json({ message: 'Email verified successfully. You can now sign in.' });
-    } catch (error) {
-      res.status(500).json({ message: 'Unable to verify code' });
-    }
-});
-
-// @desc    Send a password reset link
-// @route   POST /api/auth/forgot-password
-// @access  Public
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const email = req.body.email?.trim().toLowerCase();
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ message: 'Please provide a valid email address' });
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Wrong password' });
     }
 
-    const user = await User.findOne({ email });
-    if (user) {
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      user.resetToken = hashResetToken(resetToken);
-      user.resetTokenExpiry = new Date(Date.now() + RESET_TOKEN_TTL_MS);
-      await user.save();
-
-      const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
-      await sendPasswordResetEmail(user.email, resetUrl);
-    }
-
-    res.json({ message: 'If an account exists for that email, a password reset link has been sent.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Unable to send password reset email. Please try again later.' });
-  }
-});
-
-// @desc    Reset a password using a valid one-time token
-// @route   POST /api/auth/reset-password/:token
-// @access  Public
-router.post('/reset-password/:token', async (req, res) => {
-  try {
-    const { password, confirmPassword } = req.body;
-    if (!validatePassword(password)) {
-      return res.status(400).json({ message: 'Password must be between 8 and 128 characters' });
-    }
-    if (password !== confirmPassword) {
-      return res.status(400).json({ message: 'Passwords do not match' });
-    }
-
-    const user = await User.findOne({
-      resetToken: hashResetToken(req.params.token),
-      resetTokenExpiry: { $gt: new Date() },
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      token: generateToken(user._id),
     });
 
-    if (!user) {
-      return res.status(400).json({ message: 'Reset link is invalid or expired' });
-    }
-
-    user.password = password;
-    user.resetToken = null;
-    user.resetTokenExpiry = null;
-    await user.save();
-
-    res.json({ message: 'Password reset successfully. You can now sign in.' });
   } catch (error) {
-    res.status(500).json({ message: 'Unable to reset password' });
+    console.error("🔥 LOGIN ERROR:", error);
+    res.status(500).json({ message: error.message });
   }
 });
 
-// @desc    Get user profile
-// @route   GET /api/auth/profile
-// @access  Private
+// ================= PROFILE =================
 router.get('/profile', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-
-    if (user) {
-      res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-      });
-    } else {
-      res.status(404).json({ message: 'User not found' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Unable to load profile' });
-  }
+  res.json(req.user);
 });
 
 module.exports = router;
