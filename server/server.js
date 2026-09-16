@@ -14,31 +14,10 @@ if (!process.env.CLIENT_URL) {
   throw new Error('CLIENT_URL must be configured');
 }
 
-// 🌐 CLIENT URLS (multiple allowed)
+// 🌐 CLIENT URLS
 const clientOrigins = process.env.CLIENT_URL.split(',')
   .map((url) => url.trim())
   .filter(Boolean);
-
-// 🔍 LOCALHOST CHECK
-const isLocalhost = (url) => {
-  try {
-    const parsed = new URL(url);
-    return ['localhost', '127.0.0.1'].includes(parsed.hostname);
-  } catch {
-    return false;
-  }
-};
-
-// 🔒 HTTPS CHECK (production)
-for (const url of clientOrigins) {
-  if (
-    process.env.NODE_ENV === 'production' &&
-    !url.startsWith('https://') &&
-    !isLocalhost(url)
-  ) {
-    throw new Error('CLIENT_URL must use HTTPS in production');
-  }
-}
 
 // 👑 ADMIN SETUP
 const ensureDefaultAdmin = async () => {
@@ -78,6 +57,7 @@ const ensureDefaultAdmin = async () => {
 
 // 🗄️ DB CONNECT
 const servicesRoute = require('./routes/services');
+
 connectDB().then(async () => {
   await ensureDefaultAdmin();
   await servicesRoute.initializeServices();
@@ -87,7 +67,7 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
-// 🔐 FORCE HTTPS (Render production)
+// 🔐 FORCE HTTPS (Render)
 if (process.env.NODE_ENV === 'production') {
   app.use((req, res, next) => {
     if (!req.secure) {
@@ -100,29 +80,30 @@ if (process.env.NODE_ENV === 'production') {
 // 🛡️ SECURITY
 app.use(helmet());
 
-// 🚀 CORS FIX (FINAL)
+// 🚀 CORS FINAL FIX
 const allowedOrigins = new Set([
   ...clientOrigins,
   'http://localhost:5173',
   'http://localhost:3000',
 ]);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // Postman / mobile
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // Postman/mobile
 
     if (allowedOrigins.has(origin)) {
       return callback(null, true);
     }
 
-    console.log('❌ Blocked by CORS:', origin);
-    return callback(new Error('Not allowed by CORS'));
+    console.log("❌ Blocked by CORS:", origin);
+    return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
-}));
+};
 
-// 🔥 PREFLIGHT FIX (MOST IMPORTANT)
-app.options('*', cors());
+// ✅ SAME config everywhere
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // 🔥 FIXED
 
 // 🚫 RATE LIMIT
 app.use(rateLimit({
