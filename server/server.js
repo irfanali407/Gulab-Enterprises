@@ -85,6 +85,7 @@ const allowedOrigins = new Set([
   ...clientOrigins,
   'http://localhost:5173',
   'http://localhost:3000',
+  "https://gulab-enterprises-11.onrender.com",
 ]);
 
 const corsOptions = {
