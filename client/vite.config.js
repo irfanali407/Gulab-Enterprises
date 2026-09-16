@@ -13,4 +13,9 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+    allowedHosts: ['gulab-enterprises-7.onrender.com'],
+  },
 });
